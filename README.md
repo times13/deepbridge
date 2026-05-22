@@ -39,60 +39,82 @@ Ce projet s'appuie sur les travaux des promotions précédentes (2020–2025) et
 
 ## Structure du projet
 deepbridge/
+│
 ├── docker-compose.yml
-├── api.md                          ← contrat d'API frontend/backend
+├── api.md
 ├── README.md
 ├── .gitignore
 │
-├── frontend/                       ← application React
+├── frontend/
+│   │
 │   ├── Dockerfile
 │   ├── package.json
 │   ├── vite.config.ts
 │   ├── tailwind.config.js
 │   ├── postcss.config.js
 │   ├── index.html
+│   │
 │   └── src/
+│       │
 │       ├── main.tsx
 │       ├── App.tsx
 │       ├── index.css
+│       │
 │       ├── pages/
-│       │   └── PatientAnalysis.tsx ← page principale
+│       │   └── PatientAnalysis.tsx
+│       │
 │       ├── components/
-│       │   └── DicomViewer.tsx     ← viewer DICOM (Cornerstone)
+│       │   └── DicomViewer.tsx
+│       │
 │       ├── services/
-│       │   └── api.ts              ← client HTTP vers FastAPI
+│       │   └── api.ts
+│       │
 │       └── types/
-│           └── analysis.ts         ← interfaces TypeScript
+│           └── analysis.ts
 │
-├── backend/                        ← API Python FastAPI
+├── backend/
+│   │
 │   ├── Dockerfile
 │   ├── pyproject.toml
+│   │
 │   └── app/
-│       ├── main.py                 ← point d'entrée FastAPI
+│       │
+│       ├── main.py
 │       ├── config.py
+│       │
 │       ├── api/
-│       │   ├── patients.py         ← GET /patients
-│       │   ├── analysis.py         ← POST /analyze
-│       │   └── reports.py          ← GET /reports
+│       │   ├── patients.py
+│       │   ├── analysis.py
+│       │   └── reports.py
+│       │
 │       ├── services/
-│       │   ├── dicom_loader.py     ← lecture DICOM (pydicom)
-│       │   ├── unet_inference.py   ← inférence U-Net
-│       │   ├── stenosis_geometry.py← calcul NASCET/ECST
-│       │   ├── rf_inference.py     ← inférence Random Forest ONNX
-│       │   ├── recommendation.py   ← moteur de décision
-│       │   └── pdf_report.py       ← génération rapport PDF
+│       │   ├── dicom_loader.py
+│       │   ├── unet_inference.py
+│       │   ├── stenosis_geometry.py
+│       │   ├── rf_inference.py
+│       │   ├── recommendation.py
+│       │   └── pdf_report.py
+│       │
 │       ├── schemas/
 │       │   ├── patient.py
 │       │   └── analysis.py
+│       │
 │       └── models/
 │           ├── carotide_detector_v2.h5
 │           └── random_forest.onnx
 │
 └── data/
-└── patients/
-└── PATIENT_001/
-├── slices/             ← fichiers .dcm
-└── metadata.json       ← features cliniques du patient
+    │
+    └── patients/
+        │
+        └── PATIENT_001/
+            │
+            ├── slices/
+            │   ├── image001.dcm
+            │   ├── image002.dcm
+            │   └── ...
+            │
+            └── metadata.json
 ---
 
 ## Lancement rapide

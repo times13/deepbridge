@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+venv/
+env/
+*.egg-info/
+.pytest_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+.DS_Store
+
+# Env
+.env
+
+# Models (download separately, too heavy for git)
+app/models/*.h5
+app/models/*.onnx
+app/models/*.pt
+
+# Data
+data/

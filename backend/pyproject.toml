@@ -1,0 +1,40 @@
+[project]
+name = "deepbridge-backend"
+version = "0.1.0"
+description = "DeepBridge — Aide à la décision pour la sténose carotidienne"
+requires-python = ">=3.10"
+dependencies = [
+    "fastapi>=0.110.0",
+    "uvicorn[standard]>=0.27.0",
+    "pydantic>=2.6.0",
+    "pydantic-settings>=2.2.0",
+    "python-multipart>=0.0.9",
+    "pydicom>=2.4.0",
+    "numpy>=1.26.0",
+    "opencv-python-headless>=4.9.0",
+    "scikit-image>=0.22.0",
+    "pillow>=10.2.0",
+    "onnxruntime>=1.17.0",
+    "reportlab>=4.1.0",
+]
+
+[project.optional-dependencies]
+ml = [
+    "tensorflow-cpu>=2.15.0",
+]
+dev = [
+    "pytest>=8.0.0",
+    "httpx>=0.26.0",
+    "ruff>=0.3.0",
+]
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
