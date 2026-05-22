@@ -1,16 +1,15 @@
 # DeepBridge — Contrat d'API
 
-**Version** : 0.1.0 (Phase 1 — réponses mockées)
 **Base URL en dev** : `http://localhost:8000`
 **Documentation interactive auto-générée** : `http://localhost:8000/docs`
 
-Ce document est la source de vérité pour les appels entre le frontend React et le backend FastAPI. Les deux côtés s'alignent sur ce fichier. Toute modification de contrat se discute ici en premier, avant le code.
+Architecture : **upload-based**. Le médecin uploade les fichiers DICOM d'un patient depuis le navigateur, le backend traite la requête et retourne le rapport. Pas de stockage serveur, pas de liste de patients persistante — chaque analyse est éphémère.
 
 ## Convention générale
 
-- Tous les endpoints retournent du JSON (sauf le téléchargement DICOM brut et le PDF).
-- Les erreurs suivent le format FastAPI standard : `{"detail": "message"}` avec un code HTTP approprié (404, 422, 500).
-- Tous les pourcentages sont exprimés sur 100 (pas sur 1) sauf indication contraire.
+- Tous les endpoints retournent du JSON (sauf le PDF de rapport).
+- Les erreurs suivent le format FastAPI standard : `{"detail": "message"}` avec un code HTTP approprié.
+- Tous les pourcentages sont sur 100 sauf indication contraire.
 - Toutes les probabilités (Random Forest) sont sur 1.
 
 ---
@@ -23,97 +22,46 @@ Vérifie que le backend tourne et que les modèles sont chargés.
 ```json
 {
   "status": "healthy",
-  "models_loaded": false,
-  "version": "0.1.0"
+  "models_loaded": false
 }
 ```
 
 ---
 
-## GET /api/patients
+## POST /api/analyze
 
-Liste tous les dossiers patients disponibles. Utilisé par la page liste du frontend.
+**Le seul endpoint d'analyse.** Le frontend envoie en multipart les fichiers DICOM du patient à analyser, le backend extrait les métadonnées, fait l'inférence, et retourne le rapport complet.
 
-**Réponse 200**
-```json
-[
-  {
-    "id": "PATIENT_001",
-    "name": "Patient 001",
-    "age": 72,
-    "sex": "M",
-    "scan_date": "2021-01-18",
-    "slice_count": 412
-  },
-  {
-    "id": "PATIENT_002",
-    "name": "Patient 002",
-    "age": 68,
-    "sex": "F",
-    "scan_date": "2021-02-04",
-    "slice_count": 389
-  }
-]
+**Request** : `multipart/form-data`
+- `files` (répété) : un ou plusieurs fichiers DICOM (toutes les coupes d'un même patient)
+
+**Exemple côté frontend (axios)** :
+```js
+const formData = new FormData();
+selectedFiles.forEach(f => formData.append('files', f));
+const res = await axios.post('http://localhost:8000/api/analyze', formData);
 ```
 
----
-
-## GET /api/patients/{patient_id}
-
-Détail d'un patient avec ses features cliniques (utilisées par le modèle de complication) et la liste des IDs de coupes disponibles.
-
-**Réponse 200**
-```json
-{
-  "id": "PATIENT_001",
-  "name": "Patient 001",
-  "scan_date": "2021-01-18",
-  "slice_count": 412,
-  "features": {
-    "age": 72,
-    "sex": "M",
-    "s_plus": 1,
-    "surgical_technique": "patch",
-    "shunt": false,
-    "arterio": false,
-    "re_inter": false,
-    "anomalie": false,
-    "anomalie_comm": false
-  },
-  "slices": ["slice_0000", "slice_0001", "...", "slice_0411"]
-}
+**Exemple côté frontend (fetch)** :
+```js
+const formData = new FormData();
+selectedFiles.forEach(f => formData.append('files', f));
+const res = await fetch('http://localhost:8000/api/analyze', {
+  method: 'POST',
+  body: formData,
+});
+const result = await res.json();
 ```
 
-**Réponse 404** si le patient n'existe pas.
-
----
-
-## GET /api/patients/{patient_id}/slices/{slice_index}
-
-Retourne les bytes bruts d'une coupe DICOM (`Content-Type: application/dicom`). Le frontend les passe à cornerstone-wado-image-loader pour affichage.
-
-`slice_index` est un entier `0..slice_count-1`.
-
-**Phase 1** : non implémenté, retourne 501.
-**Phase 3+** : lecture depuis `data/patients/{patient_id}/slices/`.
-
----
-
-## POST /api/patients/{patient_id}/analyze
-
-Lance l'analyse complète d'un patient. Coût : quelques secondes (inférence U-Net sur N coupes + Random Forest + géométrie). Retourne le résultat agrégé.
-
-**Body** : aucun (toutes les infos viennent du dossier patient sur le serveur).
-
-**Réponse 200**
+**Réponse 200** — `AnalysisResult` :
 ```json
 {
-  "patient_id": "PATIENT_001",
+  "patient_id": "1.2.840.113619.2.5.1762583153.0",
   "stenosis_left": {
     "side": "left",
     "nascet_percent": 78.0,
     "ecst_percent": 65.0,
-    "min_diameter_mm": 1.4,
+    "min_diameter_mm": 1.41,
     "ref_diameter_mm": 6.4,
     "critical_slice_index": 178,
     "confidence": 0.91
@@ -122,7 +70,7 @@ Lance l'analyse complète d'un patient. Coût : quelques secondes (inférence U-
     "side": "right",
     "nascet_percent": 22.0,
     "ecst_percent": 18.0,
-    "min_diameter_mm": 4.8,
+    "min_diameter_mm": 4.84,
     "ref_diameter_mm": 6.2,
     "critical_slice_index": 192,
     "confidence": 0.88
@@ -133,16 +81,16 @@ Lance l'analyse complète d'un patient. Coût : quelques secondes (inférence U-
     "top_factors": [
       {"name": "age", "contribution": 0.31},
       {"name": "shunt", "contribution": 0.18},
-      {"name": "technique", "contribution": 0.14}
+      {"name": "surgical_technique", "contribution": 0.14}
     ]
   },
   "recommendation": {
     "verdict": "surgery",
-    "reasoning": "Sténose NASCET gauche ≥ 70%. Risque post-opératoire < 30%. Indication d'endartériectomie du côté gauche.",
+    "reasoning": "Sténose NASCET ≥ 70% (seuil chirurgical des essais NASCET, 1991). Risque post-opératoire prédit inférieur à 30%. Indication d'endartériectomie carotidienne.",
     "criteria_used": [
-      "NASCET ≥ 70% indique endartériectomie carotidienne",
-      "ECST ≥ 50% est l'équivalent ECST du seuil NASCET 70%",
-      "Risque post-opératoire acceptable < 30%"
+      "NASCET ≥ 70% : indication d'endartériectomie (NASCET trial, NEJM 1991)",
+      "ECST ≥ 50% : équivalent ECST du seuil NASCET 70% (ECST trial, Lancet 1998)",
+      "Risque post-opératoire acceptable < 30% (ESVS Guidelines 2023)"
     ]
   },
   "timestamp": "2026-05-22T14:32:18.124Z",
@@ -150,9 +98,13 @@ Lance l'analyse complète d'un patient. Coût : quelques secondes (inférence U-
 }
 ```
 
+`patient_id` est extrait du tag DICOM `PatientID`. Si absent, un identifiant aléatoire `upload_xxxxxxxx` est généré.
+
 `verdict` est l'un de : `"surgery"`, `"monitoring"`, `"contraindicated"`.
 
-**Réponse 404** si le patient n'existe pas.
+**Réponse 400** :
+- `"Aucun fichier reçu."` — aucun fichier dans le multipart
+- `"Aucun fichier DICOM valide dans l'upload (N fichier(s) rejeté(s)...)"` — les fichiers reçus ne sont pas des DICOM (validation par marqueur magique `DICM` à l'offset 128)
 
 ---
 
@@ -160,7 +112,8 @@ Lance l'analyse complète d'un patient. Coût : quelques secondes (inférence U-
 
 Récupère un rapport généré précédemment, au format JSON identique à la réponse de `POST /analyze`.
 
-**Phase 1** : non implémenté, retourne 501.
+**Phase 1-2** : non implémenté, retourne 501.
+**Phase 7** : récupération depuis SQLite.
 
 ---
 
@@ -168,22 +121,7 @@ Récupère un rapport généré précédemment, au format JSON identique à la r
 
 Télécharge le rapport au format PDF (`Content-Type: application/pdf`).
 
-**Phase 1** : non implémenté, retourne 501.
-
----
-
-## Structure des dossiers patients sur le disque
-
-Pour information du frontend (qui ne lit pas le disque, mais c'est utile à savoir) :
-
-```
-data/patients/PATIENT_001/
-├── slices/
-│   ├── slice_0000.dcm
-│   ├── slice_0001.dcm
-│   └── ...
-└── metadata.json    ← features extraites du CSV clinique
-```
+**Phase 1-2** : non implémenté, retourne 501.
 
 ---
 
@@ -193,5 +131,23 @@ Pendant le développement, le backend autorise :
 - `http://localhost:5173` (Vite par défaut)
 - `http://localhost:3000` (alt)
 - `http://127.0.0.1:5173`
+- `http://127.0.0.1:3000`
+
 
 ---
+
+## Phase 2 — état actuel
+
+L'endpoint `POST /api/analyze` :
+- ✓ Valide chaque fichier uploadé (marqueur DICM)
+- ✓ Trie les coupes par `InstanceNumber`
+- ✓ Extrait les métadonnées du premier DICOM (âge, sexe, date d'examen, modalité)
+- ⏳ Phase 3 : passera les coupes au U-Net Keras pour segmentation
+- ⏳ Phase 4 : géométrie NASCET / ECST par squelettisation
+- ⏳ Phase 5 : Random Forest sur les features cliniques pour prédiction de complications
+- ⏳ Phase 6 : moteur de recommandation combinant les deux
+
+En attendant les Phases 3-6, la réponse est mockée mais dérivée des métadonnées extraites (les patients âgés obtiennent une recommandation différente des patients jeunes, etc.) — Claude A peut développer toute l'UI contre une réponse réaliste.
+
+---
+

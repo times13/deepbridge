@@ -17,7 +17,7 @@ class HealthResponse(BaseModel):
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check() -> HealthResponse:
-    # In Phase 3+ we'll inspect app.state to confirm U-Net and ONNX are loaded.
+    # En Phase 3+, on inspectera app.state pour confirmer que U-Net et ONNX sont chargés.
     return HealthResponse(
         status="healthy",
         models_loaded=False,

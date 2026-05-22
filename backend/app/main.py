@@ -7,16 +7,14 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import analysis, health, patients, reports
+from app.api import analysis, health, reports
 from app.config import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup hook. In Phase 3+ we load the U-Net model and the ONNX model here.
-    # For now we just print the data directory so it's clear what the server sees.
+    # Startup hook. En Phase 3+ on charge ici le U-Net Keras et le modèle ONNX.
     print(f"[DeepBridge] Backend démarré.")
-    print(f"[DeepBridge] data_dir = {settings.data_dir.resolve()}")
     print(f"[DeepBridge] model_dir = {settings.model_dir.resolve()}")
     print(f"[DeepBridge] Docs : http://localhost:8000/docs")
     yield
@@ -27,7 +25,7 @@ app = FastAPI(
     title="DeepBridge API",
     description=(
         "Aide à la décision pour la sténose carotidienne — "
-        "analyse d'images DICOM et prédiction de complications post-opératoires."
+        "analyse d'images DICOM uploadées et prédiction de complications post-opératoires."
     ),
     version=settings.app_version,
     lifespan=lifespan,
@@ -42,6 +40,5 @@ app.add_middleware(
 )
 
 app.include_router(health.router, prefix="/api", tags=["health"])
-app.include_router(patients.router, prefix="/api/patients", tags=["patients"])
-app.include_router(analysis.router, prefix="/api/patients", tags=["analysis"])
+app.include_router(analysis.router, prefix="/api", tags=["analysis"])
 app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
