@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { DicomViewer } from '../components/DicomViewer'
+import { analyzePatient } from '../services/api'
 
 type AnalysisResult = {
   stenosisRight: number
@@ -36,13 +37,26 @@ export function PatientAnalysis() {
     setResult(null)
   }
 
-  function handleAnalyze() {
-    setAnalyzing(true)
-    setTimeout(() => {
-      setResult(MOCK_RESULT)
-      setAnalyzing(false)
-    }, 2000)
+ async function handleAnalyze() {
+  setAnalyzing(true)
+  try {
+    const data = await analyzePatient(files)
+    setResult({
+      stenosisRight: data.stenosis_right.nascet_percent,
+      stenosisLeft: data.stenosis_left.nascet_percent,
+      ecstRight: data.stenosis_right.ecst_percent,
+      ecstLeft: data.stenosis_left.ecst_percent,
+      operativeRisk: Math.round(data.complication_risk.probability * 100),
+      recommendation: data.recommendation.reasoning,
+      shouldOperate: data.recommendation.verdict === 'surgery',
+    })
+  } catch (err) {
+    console.error('Erreur analyse:', err)
+    alert('Erreur lors de l\'analyse. Vérifie la console.')
+  } finally {
+    setAnalyzing(false)
   }
+}
 
   const currentFile = files[currentSlice] ?? null
 
@@ -62,6 +76,9 @@ export function PatientAnalysis() {
             type="file"
             accept=".dcm"
             multiple
+            // @ts-ignore — webkitdirectory n'est pas dans les types standards mais fonctionne
+           // webkitdirectory=""
+          // directory=""
             className="hidden"
             onChange={handleFiles}
           />

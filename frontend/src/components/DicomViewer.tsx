@@ -22,14 +22,38 @@ export function DicomViewer({ file }: DicomViewerProps) {
   }, [])
 
   useEffect(() => {
+  const el = elementRef.current
+  if (!el || !file) return
+  const imageId = cornerstoneWADOImageLoader.wadouri.fileManager.add(file)
+  cornerstone.loadImage(imageId).then((image) => {
+    cornerstone.displayImage(el, image)
+    
+    // Fenêtrage automatique adapté au scanner
+    const viewport = cornerstone.getViewport(el)
+    if (viewport) {
+      viewport.voi.windowWidth = image.windowWidth || 400
+      viewport.voi.windowCenter = image.windowCenter || 40
+      cornerstone.setViewport(el, viewport)
+    }
+    
+    // Centrer et adapter au conteneur
+    cornerstone.fitToWindow(el)
+  }).catch(console.error)
+}, [file])
+
+useEffect(() => {
+  function handleResize() {
     const el = elementRef.current
-    if (!el || !file) return
-    const imageId = cornerstoneWADOImageLoader.wadouri.fileManager.add(file)
-    cornerstone.loadImage(imageId).then((image) => {
-      cornerstone.displayImage(el, image)
-      cornerstone.fitToWindow(el)
-    }).catch(console.error)
-  }, [file])
+    if (el) {
+      try {
+        cornerstone.resize(el)
+        cornerstone.fitToWindow(el)
+      } catch {}
+    }
+  }
+  window.addEventListener('resize', handleResize)
+  return () => window.removeEventListener('resize', handleResize)
+}, [])
 
   return (
     <div
