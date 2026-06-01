@@ -1,7 +1,8 @@
 """
-Utilitaires de lecture DICOM.
-on consomme des fichiers uploadés par le frontend dans
-un dossier temporaire. Les fonctions ici sont stateless.
+Lecture DICOM bas niveau (stateless).
+
+Responsabilité unique : lire des fichiers DICOM et en extraire des données
+brutes — validation de fichier, tri des coupes, métadonnées, pixels HU.
 """
 import logging
 from datetime import date
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Validation DICOM
+# Validation de fichier DICOM
 # ────────────────────────────────────────────────────────────────────────
 
 
@@ -124,14 +125,13 @@ def extract_dicom_metadata(dicom_path: Path) -> dict:
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Lecture de pixels (pour Phase 3 — inférence U-Net)
+# Lecture de pixels (HU)
 # ────────────────────────────────────────────────────────────────────────
 
 
 def read_slice_pixels(slice_path: Path) -> np.ndarray:
     """
     Lit le tableau de pixels d'une coupe avec rescale appliqué (HU pour CT).
-    Pré-requis pour la Phase 3 quand on branchera le U-Net.
     """
     ds = pydicom.dcmread(slice_path)
     arr = ds.pixel_array.astype(np.float32)

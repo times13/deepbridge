@@ -20,6 +20,7 @@ env/
 .env
 
 # Models (download separately, too heavy for git)
+app/models/
 app/models/*.h5
 app/models/*.onnx
 app/models/*.pt
