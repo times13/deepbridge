@@ -2,7 +2,15 @@
 Lecture DICOM bas niveau (stateless).
 
 Responsabilité unique : lire des fichiers DICOM et en extraire des données
-brutes — validation de fichier, tri des coupes, métadonnées, pixels HU.
+brutes — validation de fichier, métadonnées, pixels HU.
+
+CE QUE CE MODULE NE FAIT PAS
+----------------------------
+Il ne choisit pas la série à mesurer et n'ordonne pas les coupes. Ces deux
+décisions appartiennent à `pipeline/etape0_lot_segmentation.py`, qui regroupe
+les fichiers par SeriesInstanceUID et les trie par position spatiale. Les
+dupliquer ici ferait mesurer à l'application autre chose que ce que l'étude a
+validé sur 292 axes.
 """
 import logging
 from datetime import date
@@ -43,34 +51,6 @@ def is_dicom_file(path: Path) -> bool:
 
 
 # ────────────────────────────────────────────────────────────────────────
-# Tri des coupes par InstanceNumber
-# ────────────────────────────────────────────────────────────────────────
-
-
-def _get_instance_number(path: Path) -> int:
-    """Lit le tag InstanceNumber sans charger les pixels."""
-    try:
-        ds = pydicom.dcmread(path, stop_before_pixels=True)
-        return int(getattr(ds, "InstanceNumber", 0) or 0)
-    except (InvalidDicomError, AttributeError, ValueError, OSError):
-        return 0
-
-
-def sort_dicom_files(files: list[Path]) -> list[Path]:
-    """
-    Trie les coupes DICOM par InstanceNumber (séquence anatomique correcte).
-    Fallback sur le tri alphabétique si InstanceNumber est absent ou bruité.
-    """
-    if not files:
-        return []
-    indexed = [(_get_instance_number(f), f) for f in files]
-    nonzero = sum(1 for n, _ in indexed if n > 0)
-    if nonzero < len(indexed) // 2:
-        return sorted(files)
-    return [f for _, f in sorted(indexed, key=lambda x: x[0])]
-
-
-# ────────────────────────────────────────────────────────────────────────
 # Extraction de métadonnées
 # ────────────────────────────────────────────────────────────────────────
 
@@ -78,7 +58,11 @@ def sort_dicom_files(files: list[Path]) -> list[Path]:
 def extract_dicom_metadata(dicom_path: Path) -> dict:
     """
     Extrait les métadonnées patient/study du premier DICOM uploadé.
-    Tous les champs sont optionnels — on remplit ce qu'on trouve.
+
+    Les champs sont OPTIONNELS et valent None quand le tag est absent. Aucune
+    valeur n'est devinée : l'âge, le sexe et le statut symptomatique entrent
+    dans le calcul du risque de complication, et une valeur par défaut y
+    passerait pour une donnée mesurée.
     """
     try:
         ds = pydicom.dcmread(dicom_path, stop_before_pixels=True)
@@ -102,26 +86,45 @@ def extract_dicom_metadata(dicom_path: Path) -> dict:
             try:
                 bd_d = date(int(bd[:4]), int(bd[4:6]), int(bd[6:8]))
                 sd_d = date(int(sd[:4]), int(sd[4:6]), int(sd[6:8]))
-                metadata["age"] = (sd_d - bd_d).days // 365
+                # 365.25 et non 365 : sur un patient de 75 ans, l'écart
+                # atteint plus de six mois.
+                metadata["age"] = int((sd_d - bd_d).days / 365.25)
             except (ValueError, IndexError):
                 pass
+    metadata.setdefault("age", None)
 
-    # Sexe (M/F, sinon défaut M)
+    # Sexe — None si absent ou illisible, JAMAIS une valeur par défaut.
+    # Un sexe deviné deviendrait un prédicteur du modèle de risque sans que
+    # personne ne sache qu'il a été inventé. None force l'appelant à demander
+    # l'information, ce que l'écran doit faire de toute façon pour le statut
+    # symptomatique.
     sex = str(getattr(ds, "PatientSex", "") or "").upper().strip()
-    metadata["sex"] = sex if sex in ("M", "F") else "M"
+    metadata["sex"] = sex if sex in ("M", "F") else None
 
     # Date d'examen
     sd = str(getattr(ds, "StudyDate", "") or "")
+    metadata["scan_date"] = None
     if len(sd) == 8:
         try:
             metadata["scan_date"] = date(int(sd[:4]), int(sd[4:6]), int(sd[6:8]))
         except ValueError:
             pass
 
-    metadata["patient_id_dicom"] = str(getattr(ds, "PatientID", "") or "")
-    metadata["modality"] = str(getattr(ds, "Modality", "") or "")
-    metadata["series_description"] = str(getattr(ds, "SeriesDescription", "") or "")
+    metadata["patient_id_dicom"] = str(getattr(ds, "PatientID", "") or "") or None
+    metadata["modality"] = str(getattr(ds, "Modality", "") or "") or None
+    metadata["series_description"] = (
+        str(getattr(ds, "SeriesDescription", "") or "") or None)
     return metadata
+
+
+def champs_manquants(metadata: dict) -> list[str]:
+    """Champs indispensables au calcul du risque et absents des en-têtes.
+
+    L'écran de résultat s'en sert pour demander au clinicien ce que le DICOM
+    ne porte pas, plutôt que de produire une estimation sur des valeurs
+    inventées.
+    """
+    return [c for c in ("age", "sex") if not metadata.get(c)]
 
 
 # ────────────────────────────────────────────────────────────────────────
@@ -132,6 +135,11 @@ def extract_dicom_metadata(dicom_path: Path) -> dict:
 def read_slice_pixels(slice_path: Path) -> np.ndarray:
     """
     Lit le tableau de pixels d'une coupe avec rescale appliqué (HU pour CT).
+
+    Sert à prévisualiser un dépôt AVANT analyse, quand le ct.nii.gz n'existe
+    pas encore. Une fois l'analyse faite, les coupes sont servies depuis le
+    NIfTI : `z_minimum` y est un index, donc la coupe affichée au radiologue
+    est celle que la chaîne a mesurée, par construction.
     """
     ds = pydicom.dcmread(slice_path)
     arr = ds.pixel_array.astype(np.float32)
