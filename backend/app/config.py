@@ -1,8 +1,9 @@
 """
-Centralized configuration. Values can be overridden via environment variables
-or a `.env` file at the backend root.
+Configuration centralisée. Surchargeable par variables d'environnement ou par
+un fichier `.env` à la racine du backend.
 """
 from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -10,73 +11,85 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
     # ──────────────────────────────────────────────────────────────
-    # Paths
+    # Chemins
     # ──────────────────────────────────────────────────────────────
-    data_dir: Path = Path("./data")
-    model_dir: Path = Path("./app/models")
+    data_dir: Path = Path("../data")
+    pipeline_dir: Path = Path("../pipeline")
 
-    # Model filenames (placed inside model_dir)
-    unet_model_filename: str = "carotide_detector_v2.h5"
-    rf_model_filename: str = "random_forest.onnx"
+    # Interpréteur qui exécute le pipeline. TotalSegmentator traîne PyTorch et
+    # plusieurs gigaoctets : on ne l'installe pas dans le venv du backend, qui
+    # reste léger. Le pipeline garde son environnement d'origine, celui-là même
+    # qui a produit les 292 axes de la cohorte de référence — ce qui garantit
+    # que l'application mesure avec les mêmes versions que l'étude.
+    python_pipeline: str = "python"
+
+    # Cohorte d'ETUDE — 292 axes, figée, LECTURE SEULE.
+    # Les chiffres du mémoire (médiane 48,6 %, biais p = 3e-7) ne sont
+    # vérifiables que si ce fichier ne bouge plus.
+    nascet_reference: Path = Path("../data/reference/nascet.csv")
+
+    # Dossiers CLINIQUES — un sous-dossier par patient analysé par
+    # l'application. Issue à J30 inconnue : ces patients n'entrent ni dans
+    # les statistiques du mémoire, ni dans la base de comparaison du risque.
+    dossiers_dir: Path = Path("../data/dossiers")
+
+    # Figures produites par etape2c / etape2d pour la cohorte d'étude.
+    mesures_dir: Path = Path("../data/mesures_all")
+
+    # Volumes et masques. Dossier de TRAVAIL, pas archive : ct.nii.gz pèse
+    # 0,5 à 1 Go par patient et se reconstruit depuis le PACS.
+    resultats_dir: Path = Path("../data/Resultats")
+
+    # Dépôts temporaires et bases locales.
+    depots_dir: Path = Path("../data/depots")
+    base_travaux: Path = Path("../data/travaux.sqlite")
+    base_index: Path = Path("../data/index.sqlite")
 
     # ──────────────────────────────────────────────────────────────
-    # Inférence U-Net (segmentation carotides)
+    # Analyse
     # ──────────────────────────────────────────────────────────────
-    img_size: int = 256            # taille d'entrée attendue par le .h5
-    mask_threshold: float = 0.5    # seuil de binarisation de la prédiction
-    unet_pos_weight: int = 70      # poids utilisé à l'entraînement (loss)
-
-    # Fenêtrage par défaut si absent du DICOM (tissus mous / vaisseaux du cou).
-    # Le code privilégie les valeurs inscrites dans le DICOM si présentes.
-    default_window_center: int = 40
-    default_window_width: int = 100
-
-    # Sélection de la série : on EXCLUT seulement ce qui est manifestement
-    # hors-sujet. On n'exige jamais de mot-clé positif (texte libre peu fiable) ;
-    # l'orientation axiale + le nombre de coupes font le vrai tri.
-    excluded_series_keywords: tuple[str, ...] = (
-        "crane", "scout", "topogram", "localizer", "sag", "cor",
-    )
+    device: str = "cpu"                 # cpu | gpu
+    activer_depot: bool = True          # False = revue seule, aucun calcul
 
     # ──────────────────────────────────────────────────────────────
-    # Validation de l'examen (anti pied/main/thorax/IRM…)
+    # Seuils cliniques — issus des essais randomisés NASCET / ECST.
+    # Ce ne sont pas des paramètres d'implémentation : ils encodent la
+    # comparaison entre opérer et ne pas opérer, que les données locales
+    # ne contiennent pas (tous les patients de la base ont été opérés).
+    # ──────────────────────────────────────────────────────────────
+    seuil_symptomatique: float = 50.0
+    seuil_asymptomatique: float = 70.0
+
+    # ──────────────────────────────────────────────────────────────
+    # Validation d'examen — voir app/validation.py.
+    # Repris de pipeline/inventory_dicom.py pour que l'application applique
+    # les MÊMES critères que l'étude : un examen accepté ici doit être
+    # comparable aux 292 axes de la cohorte de référence.
     # ──────────────────────────────────────────────────────────────
     accepted_modality: str = "CT"
+    epaisseur_max_mm: float = 1.5
+    coupes_min: int = 100
+    etendue_z_min_mm: float = 80.0
 
-    # Parties du corps explicitement hors-sujet (tag BodyPartExamined ou
-    # trahies par SeriesDescription). MAJUSCULES, comparaison insensible à la casse.
-    excluded_body_parts: tuple[str, ...] = (
-        "FOOT", "PIED", "HAND", "MAIN", "CHEST", "THORAX", "ABDOMEN",
-        "PELVIS", "KNEE", "GENOU", "SPINE", "RACHIS", "BRAIN", "CERVEAU",
-    )
-
-    # Sanity check du masque prédit (sur image img_size × img_size)
-    mask_min_pixels: int = 50        # une carotide plausible fait au moins ~50 px
-    mask_max_pixels: int = 5000      # au-delà : aberrant (le modèle "bave")
-    # Fraction minimale de coupes portant un signal carotidien crédible.
-    # En dessous : probablement pas un examen du cou.
-    min_fraction_slices_with_signal: float = 0.05
+    # Confirmation post-segmentation.
+    # À CALIBRER sur composantes.csv : minimum de la colonne 'voxels' des
+    # composantes significatives, puis descendre nettement en dessous. Un
+    # seuil trop haut refuserait les carotides fines — donc les sténoses
+    # serrées, et le biais de sélection s'en trouverait aggravé.
+    voxels_carotide_min: int = 500
+    etendue_carotide_min_mm: float = 60.0
 
     # ──────────────────────────────────────────────────────────────
-    # API metadata
+    # API
     # ──────────────────────────────────────────────────────────────
-    app_version: str = "0.1.0"
+    app_version: str = "0.2.0"
 
-    # CORS — extend as needed
     cors_origins: list[str] = [
         "http://localhost:5173",
         "http://localhost:3000",
         "http://127.0.0.1:5173",
         "http://127.0.0.1:3000",
     ]
-
-    @property
-    def unet_model_path(self) -> Path:
-        return self.model_dir / self.unet_model_filename
-
-    @property
-    def rf_model_path(self) -> Path:
-        return self.model_dir / self.rf_model_filename
 
 
 settings = Settings()

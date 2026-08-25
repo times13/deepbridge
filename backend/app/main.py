@@ -7,25 +7,34 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import analysis, health, reports
+from app import contexte
+from app.api import axes, corrections, travaux
 from app.config import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup hook. En Phase 3+ on charge ici le U-Net Keras et le modèle ONNX.
-    print(f"[DeepBridge] Backend démarré.")
-    print(f"[DeepBridge] model_dir = {settings.model_dir.resolve()}")
+    bilan = contexte.demarrer()
+    e, c = bilan["etude"], bilan["clinique"]
+    print(f"[DeepBridge] etude    : {e['axes']} axes, {e['patients']} patients, "
+          f"{e['n_refus']} refus, mediane "
+          f"{e['mediane_publiee'] if e['mediane_publiee'] is None else round(e['mediane_publiee'], 1)} %"
+          f"  (lecture seule)")
+    print(f"[DeepBridge] clinique : {c['axes']} axes, {c['patients']} patients "
+          f"-> {settings.dossiers_dir}")
+    print(f"[DeepBridge] depot DICOM : "
+          f"{'actif, pipeline ' + str(settings.pipeline_dir) if bilan['depot'] else 'desactive (revue seule)'}")
     print(f"[DeepBridge] Docs : http://localhost:8000/docs")
     yield
-    print("[DeepBridge] Backend arrêté.")
+    contexte.arreter()
+    print("[DeepBridge] Backend arrete.")
 
 
 app = FastAPI(
     title="DeepBridge API",
     description=(
-        "Aide à la décision pour la sténose carotidienne — "
-        "analyse d'images DICOM uploadées et prédiction de complications post-opératoires."
+        "Aide à la décision pour la sténose carotidienne — mesure NASCET "
+        "automatisée sur angioscanner, avec abstention motivée."
     ),
     version=settings.app_version,
     lifespan=lifespan,
@@ -39,6 +48,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(health.router, prefix="/api", tags=["health"])
-app.include_router(analysis.router, prefix="/api", tags=["analysis"])
-app.include_router(reports.router, prefix="/api/reports", tags=["reports"])
+app.include_router(axes.router, prefix="/api", tags=["mesures"])
+app.include_router(travaux.router, prefix="/api", tags=["analyse"])
+app.include_router(corrections.router, prefix="/api", tags=["corrections"])
