@@ -7,3 +7,19 @@ __pycache__/
 *.egg-info/
 .venv/
 *.db
+
+# Données médicales
+data/
+*.nii.gz
+*.dcm
+*.xlsx
+nascet.csv
+cles.csv
+*.sqlite*
+*.h5
+*.onnx
+*.pkl
+
+# Environnement / fichiers de test
+venv/
+ts_test/
