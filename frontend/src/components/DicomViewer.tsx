@@ -25,7 +25,7 @@ export function DicomViewer({ file }: DicomViewerProps) {
   const el = elementRef.current
   if (!el || !file) return
   const imageId = cornerstoneWADOImageLoader.wadouri.fileManager.add(file)
-  cornerstone.loadImage(imageId).then((image) => {
+  cornerstone.loadImage(imageId).then((image: { windowWidth?: number; windowCenter?: number }) => {
     cornerstone.displayImage(el, image)
     
     // Fenêtrage automatique adapté au scanner
