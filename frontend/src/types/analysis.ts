@@ -99,3 +99,18 @@ export interface Synthese {
   etude: SyntheseCohorte;
   clinique: SyntheseCohorte;
 }
+
+export interface Prevol {
+  issue: 'recevable' | 'reserve' | 'refus';
+  verdict: string | null;
+  message: string;
+  bloquants: string[];
+  reserves: string[];
+  indices: Record<string, unknown>;
+}
+
+export interface DossierDisponible {
+  nom: string;
+  chemin: string;
+  fichiers: number;
+}

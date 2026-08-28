@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 
 import { api } from '../services/api';
 import { BarreReduction, COULEUR, PuceVerdict, n1 } from '../components/Verdict';
+import Loupe from '../components/Loupe';
 import type { Axe, FichePatient as Fiche } from '../types/analysis';
 
 /**
@@ -141,6 +142,7 @@ function BlocAxe({ axe }: { axe: Axe }) {
   const c = COULEUR[axe.verdict];
   const p = axe.preuve;
   const figures = Object.entries(axe.artefacts ?? {});
+  const [loupe, setLoupe] = useState<[string, string] | null>(null);
 
   return (
     <section className="rounded border border-[#39424F] bg-[#222933] p-5">
@@ -233,7 +235,13 @@ function BlocAxe({ axe }: { axe: Axe }) {
                 key={nom}
                 className="overflow-hidden rounded border border-[#39424F] bg-black"
               >
-                <img src={url} alt={nom} loading="lazy" className="block w-full" />
+                <button
+                  onClick={() => setLoupe([url, nom])}
+                  className="block w-full cursor-zoom-in"
+                  aria-label={`Agrandir ${nom}`}
+                >
+                  <img src={url} alt={nom} loading="lazy" className="block w-full" />
+                </button>
                 <figcaption className="bg-[#222933] px-2 py-1 text-[10.5px] text-[#8B97A8]">
                   {nom}
                 </figcaption>
@@ -241,6 +249,10 @@ function BlocAxe({ axe }: { axe: Axe }) {
             ))}
           </div>
         </>
+      )}
+
+      {loupe && (
+        <Loupe url={loupe[0]} legende={loupe[1]} onFermer={() => setLoupe(null)} />
       )}
     </section>
   );

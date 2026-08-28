@@ -1,7 +1,9 @@
 // Appels au backend. Vite proxifie /api vers http://127.0.0.1:8000
 // (voir vite.config.ts).
 
-import type { Axe, FichePatient, Synthese, Travail } from '../types/analysis';
+import type {
+  Axe, DossierDisponible, FichePatient, Prevol, Synthese, Travail,
+} from '../types/analysis';
 
 async function get<T>(url: string): Promise<T> {
   const r = await fetch(url);
@@ -21,6 +23,34 @@ export const api = {
   filePrioritaire: () => get<Axe[]>('/api/file-prioritaire'),
 
   patient: (id: string) => get<FichePatient>(`/api/patients/${id}`),
+
+  /** Dossiers DICOM que le serveur voit sous ses racines declarees. */
+  dossiersDisponibles: () =>
+    get<DossierDisponible[]>('/api/dossiers-disponibles'),
+
+  /** Recevabilite d'un dossier, sans lancer l'analyse. Deux secondes de
+   *  lecture d'en-tetes contre douze minutes de segmentation. */
+  prevol: (dossier: string) =>
+    fetch('/api/dossiers/prevol', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dossier }),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json()).detail ?? 'controle impossible');
+      return (await r.json()) as Prevol;
+    }),
+
+  /** Cree un travail sur un dossier deja present sur le serveur.
+   *  Zero octet transfere : le pipeline lit la ou le fichier se trouve. */
+  deposerLocal: (dossier: string) =>
+    fetch('/api/travaux/local', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ dossier }),
+    }).then(async (r) => {
+      if (!r.ok) throw new Error((await r.json()).detail ?? 'depot impossible');
+      return (await r.json()) as Travail;
+    }),
 
   travaux: () => get<Travail[]>('/api/travaux'),
 
