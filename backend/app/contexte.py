@@ -34,6 +34,7 @@ def demarrer() -> dict:
         _file = FileTravaux(settings.base_travaux, settings.resultats_dir,
                             settings.dossiers_dir, settings.pipeline_dir,
                             python=settings.python_pipeline,
+                            totalsegmentator=settings.totalsegmentator,
                             device=settings.device)
 
     return {"etude": _mesures.synthese("etude"),

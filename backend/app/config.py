@@ -15,13 +15,13 @@ class Settings(BaseSettings):
     # ──────────────────────────────────────────────────────────────
     data_dir: Path = Path("../data")
     pipeline_dir: Path = Path("../pipeline")
-
-    # Interpréteur qui exécute le pipeline. TotalSegmentator traîne PyTorch et
-    # plusieurs gigaoctets : on ne l'installe pas dans le venv du backend, qui
-    # reste léger. Le pipeline garde son environnement d'origine, celui-là même
-    # qui a produit les 292 axes de la cohorte de référence — ce qui garantit
-    # que l'application mesure avec les mêmes versions que l'étude.
     python_pipeline: str = "python"
+
+    # Executable TotalSegmentator. Il vit dans le venv du pipeline, absent du
+    # PATH du processus uvicorn : l'appeler par son nom seul echoue en
+    # WinError 2. On le designe donc explicitement.
+    totalsegmentator: str = "TotalSegmentator"
+
 
     # Cohorte d'ETUDE — 292 axes, figée, LECTURE SEULE.
     # Les chiffres du mémoire (médiane 48,6 %, biais p = 3e-7) ne sont
@@ -41,6 +41,11 @@ class Settings(BaseSettings):
     resultats_dir: Path = Path("../data/Resultats")
 
     # Dépôts temporaires et bases locales.
+    # Racines ou le serveur cherche les dossiers DICOM. Le client ne peut
+    # designer qu'un dossier SITUE SOUS l'une d'elles : sans ce confinement,
+    # une requete pourrait faire lire n'importe quel dossier du serveur.
+    racines_dicom: list[str] = ["../data/depots"]
+
     depots_dir: Path = Path("../data/depots")
     base_travaux: Path = Path("../data/travaux.sqlite")
     base_index: Path = Path("../data/index.sqlite")
