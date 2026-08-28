@@ -220,6 +220,16 @@ def prevol(fichiers: list[Path]) -> Rapport:
         bloquants.append(
             f"Region « {exclue} » : les carotides se mesurent sur un examen "
             f"cervical.")
+    elif exclue:
+        # Un indice cervical ET un indice hors-sujet dans les memes en-tetes.
+        # La liste blanche l'emporte — refuser sur une description de serie
+        # contradictoire bloquerait des examens valides — mais le silence
+        # serait pire : c'est exactement le genre d'incoherence qui passe
+        # inapercue puis se paie a la mesure.
+        reserves.append(
+            f"En-tetes contradictoires : indice cervical present, mais la "
+            f"region « {exclue} » y figure aussi. A verifier avant de retenir "
+            f"le resultat.")
     elif not acceptee:
         # Le silence n'est pas un refus : les descriptions de serie varient
         # trop d'un centre a l'autre. controle_volume() tranchera.
