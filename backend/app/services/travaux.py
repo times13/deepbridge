@@ -34,6 +34,7 @@ processus interrompu laisse un dossier 'seg/' partiel qui serait compte comme
 un succes. On verifie la presence effective des fichiers de labels attendus.
 """
 
+import os
 import json
 import shutil
 import sqlite3
@@ -86,7 +87,6 @@ CREATE TABLE IF NOT EXISTS travaux (
 CREATE INDEX IF NOT EXISTS idx_etat ON travaux(etat);
 """
 
-
 def maintenant() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -117,13 +117,14 @@ class FileTravaux:
     """Stockage SQLite + un thread de travail."""
 
     def __init__(self, base: Path, racine_resultats: Path, racine_dossiers: Path,
-                 pipeline: Path, python: str = None, device: str = "cpu"):
+                 pipeline: Path, python: str = None, device: str = "cpu",
+                 totalsegmentator: str = "TotalSegmentator"):
         self.base = Path(base)
         self.base.parent.mkdir(parents=True, exist_ok=True)
         self.racine_resultats = Path(racine_resultats)
         # Racine des dossiers CLINIQUES. Chaque patient analyse par
         # l'application y recoit son propre sous-dossier et son propre CSV.
-        #
+            #
         # La cohorte d'etude (292 axes) n'est JAMAIS ecrite ici ni ailleurs :
         # elle est figee, et c'est ce qui rend les chiffres du memoire
         # verifiables. Melanger les deux rendrait la mediane publiee, les
@@ -133,6 +134,9 @@ class FileTravaux:
         self.pipeline = Path(pipeline)
         self.python = python or "python"
         self.device = device
+        # L'executable vit dans le venv du pipeline, absent du PATH du
+        # processus uvicorn : l'appeler par son nom seul echoue en WinError 2.
+        self.totalsegmentator = totalsegmentator
 
         self._verrou = threading.Lock()
         self._queue: Queue[str] = Queue()
@@ -150,7 +154,7 @@ class FileTravaux:
                                         name="deepbridge-worker")
         self._worker.start()
 
-    # -- stockage ---------------------------------------------------------- #
+        # -- stockage ---------------------------------------------------------- #
 
     def _cx(self):
         cx = sqlite3.connect(self.base, timeout=30)
@@ -174,7 +178,7 @@ class FileTravaux:
         sql = ", ".join(f"{k}=?" for k in champs)
         with self._verrou, self._cx() as cx:
             cx.execute(f"UPDATE travaux SET {sql} WHERE id=?",
-                       (*champs.values(), tid))
+                    (*champs.values(), tid))
 
     def _noter(self, tid: str, texte: str):
         t = self._lire(tid)
@@ -190,7 +194,7 @@ class FileTravaux:
                 "('termine','echec','annule','en_attente')").fetchall()
         for r in lignes:
             self._maj(r["id"], etat="en_attente", etape=None,
-                      message="repris apres redemarrage du service")
+                    message="repris apres redemarrage du service")
             self._queue.put(r["id"])
 
     # -- API publique ------------------------------------------------------ #
@@ -202,7 +206,7 @@ class FileTravaux:
                 "INSERT INTO travaux (id, patient_id, dossier_depot, etat, "
                 "progression, message, cree_le) VALUES (?,?,?,?,?,?,?)",
                 (tid, patient_id, str(dossier_depot), "en_attente", 0,
-                 "en file", maintenant()))
+                "en file", maintenant()))
         self._queue.put(tid)
         return self._lire(tid)
 
@@ -223,7 +227,7 @@ class FileTravaux:
         self._annules.add(tid)
         if t.etat == "en_attente":
             self._maj(tid, etat="annule", fini_le=maintenant(),
-                      message="annule avant demarrage")
+                    message="annule avant demarrage")
         else:
             self._maj(tid, message="annulation demandee, fin de l'etape en cours")
         return True
@@ -247,13 +251,13 @@ class FileTravaux:
             except Exception:
                 self._maj(tid, etat="echec", fini_le=maintenant(),
                           erreur=traceback.format_exc()[-2000:],
-                          message="erreur interne du service")
+                message="erreur interne du service")
 
     def _annule(self, tid: str) -> bool:
         if tid in self._annules:
             self._annules.discard(tid)
             self._maj(tid, etat="annule", fini_le=maintenant(),
-                      message="annule")
+                    message="annule")
             return True
         return False
 
@@ -268,7 +272,7 @@ class FileTravaux:
         # examen hors-sujet traverse toute la chaine et ressort en
         # « rehaussement insuffisant » — une cause qui n'est pas la vraie.
         self._maj(tid, etat="prevol", etape="prevol", progression=1,
-                  demarre_le=maintenant(), message="controle de recevabilite")
+                demarre_le=maintenant(), message="controle de recevabilite")
         fichiers = self._fichiers_dicom(depot)
         r = prevol(fichiers)
         self._noter(tid, f"pre-vol : {r.issue} — {r.message[:90]}")
@@ -276,23 +280,23 @@ class FileTravaux:
             self._noter(tid, f"reserve : {x[:90]}")
         if not r.ok:
             self._maj(tid, etat="echec", etape="prevol", fini_le=maintenant(),
-                      message=r.message,
-                      erreur="\n".join(r.bloquants)[:2000])
+                    message=r.message,
+                    erreur="\n".join(r.bloquants)[:2000])
             return
         if r.indices.get("patient_id"):
             self._maj(tid, patient_id=r.indices["patient_id"])
 
         self._maj(tid, etat="conversion", etape="conversion", progression=3,
-                  message="lecture du dossier DICOM")
+                message="lecture du dossier DICOM")
 
         # --- 1. conversion : PatientID puis ct.nii.gz --------------------- #
         pid = t.patient_id or r.indices.get("patient_id") or self._patient_id(depot)
         if not pid:
             self._maj(tid, etat="echec", fini_le=maintenant(),
-                      message="aucun PatientID lisible dans ce dossier",
-                      erreur="Le dossier ne contient pas de serie DICOM "
-                             "exploitable, ou le tag PatientID (0010,0020) "
-                             "est absent.")
+                    message="aucun PatientID lisible dans ce dossier",
+                    erreur="Le dossier ne contient pas de serie DICOM "
+                            "exploitable, ou le tag PatientID (0010,0020) "
+                            "est absent.")
             return
         self._maj(tid, patient_id=pid)
         cible = self.racine_resultats / pid
@@ -305,9 +309,9 @@ class FileTravaux:
             self._noter(tid, "conversion DICOM vers NIfTI")
             ok, msg = self._lancer([
                 self.python, str(self.pipeline / "etape0_lot_segmentation.py"),
-                "--scans", str(depot.parent), "--out", str(self.racine_resultats),
+                "--scans", str(self._racine_scan(depot, tid)), "--out", str(self.racine_resultats),
                 "--seulement-ct", "--silencieux",
-            ], tid, timeout=1800)
+                ], tid, timeout=1800)
             if not ok:
                 return self._echec(tid, "conversion", msg)
             self._maj(tid, progression=20)
@@ -316,15 +320,15 @@ class FileTravaux:
 
         # --- 2. segmentation --------------------------------------------- #
         self._maj(tid, etat="segmentation", etape="segmentation", progression=22,
-                  message="segmentation en cours — comptez une quinzaine de minutes")
+                message="segmentation en cours — comptez une quinzaine de minutes")
         if self._segmentation_complete(cible):
             self._noter(tid, "segmentation deja complete, etape sautee")
         else:
             self._noter(tid, "TotalSegmentator : carotides internes et jugulaires")
             ok, msg = self._lancer([
-                "TotalSegmentator", "-i", str(ct), "-o", str(cible / "seg"),
+                self.totalsegmentator, "-i", str(ct), "-o", str(cible / "seg"),
                 "-ta", "headneck_bones_vessels", "--device", self.device,
-            ], tid, timeout=14400)
+                ], tid, timeout=14400)
             if not ok:
                 return self._echec(tid, "segmentation", msg)
             self._maj(tid, progression=55,
@@ -333,10 +337,10 @@ class FileTravaux:
             # Sans la commune, la mesure porte AU-DESSUS du bulbe, donc
             # au-dessus du site ou siege la plupart des lesions.
             ok, msg = self._lancer([
-                "TotalSegmentator", "-i", str(ct), "-o", str(cible / "seg_total"),
+                self.totalsegmentator, "-i", str(ct), "-o", str(cible / "seg_total"),
                 "-ta", "total", "--device", self.device, "--roi_subset",
                 "common_carotid_artery_left", "common_carotid_artery_right",
-            ], tid, timeout=14400)
+                ], tid, timeout=14400)
             if not ok:
                 return self._echec(tid, "segmentation", msg)
         # --- 2bis. confirmation de la region ------------------------------ #
@@ -348,8 +352,8 @@ class FileTravaux:
             self._noter(tid, f"reserve : {x[:90]}")
         if not rv.ok:
             self._maj(tid, etat="echec", etape="segmentation",
-                      fini_le=maintenant(), message=rv.message,
-                      erreur="\n".join(rv.bloquants)[:2000])
+                    fini_le=maintenant(), message=rv.message,
+                    erreur="\n".join(rv.bloquants)[:2000])
             return
 
         self._maj(tid, progression=70)
@@ -359,7 +363,7 @@ class FileTravaux:
         # --- 3 et 4. axe puis mesure, cote par cote ----------------------- #
         for i, cote in enumerate(("gauche", "droite")):
             self._maj(tid, etat="axe", etape="axe", progression=70 + i * 10,
-                      message=f"ligne centrale — carotide {cote}")
+                    message=f"ligne centrale — carotide {cote}")
             ok, msg = self._lancer([
                 self.python,
                 str(self.pipeline / "etape2c_centerline_geodesique.py"),
@@ -371,8 +375,8 @@ class FileTravaux:
                 continue
 
             self._maj(tid, etat="mesure", etape="mesure",
-                      progression=80 + i * 8,
-                      message=f"mesure FWHM — carotide {cote}")
+                    progression=80 + i * 8,
+                    message=f"mesure FWHM — carotide {cote}")
             ok, msg = self._lancer([
                 self.python, str(self.pipeline / "etape2d_fwhm.py"),
                 "--patient", str(cible), "--cote", cote,
@@ -398,15 +402,15 @@ class FileTravaux:
                 tid, "mesure",
                 "Aucune ligne produite dans nascet.csv pour ce patient.")
         self._maj(tid, etat="termine", etape=None, progression=100,
-                  fini_le=maintenant(), duree_s=round(time.time() - t0, 1),
-                  message=f"{len(resultats)} axe(s) analyse(s)")
+                fini_le=maintenant(), duree_s=round(time.time() - t0, 1),
+                message=f"{len(resultats)} axe(s) analyse(s)")
         self._noter(tid, "termine")
 
     # -- utilitaires -------------------------------------------------------- #
 
     def _echec(self, tid: str, etape: str, msg: str):
         self._maj(tid, etat="echec", etape=etape, fini_le=maintenant(),
-                  message=f"echec a l'etape « {etape} »", erreur=msg[:2000])
+                message=f"echec a l'etape « {etape} »", erreur=msg[:2000])
 
     def _lancer(self, cmd: list, tid: str, timeout: int) -> tuple[bool, str]:
         self._noter(tid, " ".join(str(c) for c in cmd[:3]) + " …")
@@ -421,7 +425,7 @@ class FileTravaux:
             return True, ""
         # Message entier et non derniere ligne : une exception Python s'imprime
         # sur plusieurs lignes, et un WinError 32 nomme le fichier verrouille.
-        return False, ((r.stderr or r.stdout or f"code {r.returncode}")
+            return False, ((r.stderr or r.stdout or f"code {r.returncode}")
                        .strip()[-2000:])
 
     def _fichiers_dicom(self, depot: Path) -> list[Path]:
@@ -433,6 +437,39 @@ class FileTravaux:
         par le pipeline, sur la position spatiale.
         """
         return sorted(p for p in depot.rglob("*") if p.is_file())
+
+    def _racine_scan(self, depot: Path, tid: str) -> Path:
+        """Dossier ne contenant QUE le patient a convertir.
+
+        etape0 parcourt les sous-dossiers de --scans et les traite TOUS.
+        Passer depot.parent convenait au televersement, ou le parent ne
+        contenait qu'un patient ; sur un depot par chemin, c'est la racine des
+        150 dossiers du dataset. D'ou le depassement de delai observe.
+
+        On cree donc un dossier de travail contenant une jonction vers le seul
+        patient vise. Aucun octet n'est copie.
+        """
+        racine = self.base.parent / "scan" / tid
+        racine.mkdir(parents=True, exist_ok=True)
+        lien = racine / depot.name
+        if lien.exists():
+            return racine
+        try:
+            if os.name == "nt":
+                # Jonction de repertoire : aucun droit administrateur requis,
+                # contrairement au lien symbolique sous Windows.
+                subprocess.run(["cmd", "/c", "mklink", "/J",
+                                 str(lien), str(depot)],
+                capture_output=True, check=True)
+            else:
+                lien.symlink_to(depot, target_is_directory=True)
+        except Exception:
+            # Repli : si le dossier depose contient lui-meme des sous-dossiers,
+            # etape0 peut le prendre directement pour racine.
+            if any(p.is_dir() for p in depot.iterdir()):
+                return depot
+            raise
+        return racine
 
     def _segmentation_complete(self, cible: Path) -> bool:
         seg, tot = cible / "seg", cible / "seg_total"
@@ -521,7 +558,7 @@ class FileTravaux:
 
 def ranger_depot(fichiers, racine_depots: Path) -> Path:
     """Ecrit les fichiers deposes dans un dossier de travail unique.
-
+    
     Les chemins d'origine sont neutralises : un nom de fichier venant du
     client ne doit jamais pouvoir ecrire hors du dossier de depot.
     """
