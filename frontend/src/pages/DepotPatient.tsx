@@ -94,6 +94,19 @@ export default function DepotPatient({
 
   const teinte = prevol ? TEINTE[prevol.issue] : null;
 
+    // Un même dossier peut être redéposé après un échec : chaque dépôt crée un
+  // nouveau travail, l'ancien reste en trace. Sans marquer les dépassés, deux
+  // cartes du même patient s'affichent sans qu'on sache laquelle fait foi.
+  // La liste étant triée du plus récent au plus ancien, le premier travail
+  // rencontré pour un patient est celui qui compte.
+  const vus = new Set<string>();
+  const depasses = new Set<string>();
+  for (const t of travaux) {
+    if (!t.patient_id) continue;
+    if (vus.has(t.patient_id)) depasses.add(t.id);
+    else vus.add(t.patient_id);
+  }
+
   return (
     <div className="min-h-screen bg-[#191E26] p-6 text-[#DDE3EA] md:p-10">
       <h1 className="text-xl font-semibold uppercase tracking-[0.09em]">
@@ -210,7 +223,12 @@ export default function DepotPatient({
           </h2>
           <div className="space-y-3">
             {travaux.map((t) => (
-              <CarteTravail key={t.id} t={t} onOuvrirPatient={onOuvrirPatient} />
+              <CarteTravail
+                key={t.id}
+                t={t}
+                depasse={depasses.has(t.id)}
+                onOuvrirPatient={onOuvrirPatient}
+              />
             ))}
           </div>
         </section>
@@ -221,15 +239,21 @@ export default function DepotPatient({
 
 function CarteTravail({
   t,
+  depasse = false,
   onOuvrirPatient,
 }: {
   t: Travail;
+  depasse?: boolean;
   onOuvrirPatient: (p: string) => void;
 }) {
   const c = COULEUR_ETAT[t.etat] ?? '#7E8CA0';
 
   return (
-    <div className="rounded border border-[#39424F] p-4">
+    <div
+      className={`rounded border border-[#39424F] p-4 ${
+        depasse ? 'opacity-45' : ''
+      }`}
+    >
             <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           {/* Le dossier d'abord : c'est ce que l'utilisateur a choisi.
@@ -237,10 +261,17 @@ function CarteTravail({
           <div className="truncate font-mono text-[12.5px]" title={t.dossier_nom ?? ''}>
             {t.dossier_nom ?? '—'}
           </div>
-          <div className="mt-0.5 text-[11px] text-[#8B97A8]">
+            <div className="mt-0.5 text-[11px] text-[#8B97A8]">
             {t.patient_id
               ? <>PatientID <span className="font-mono text-[#DDE3EA]">{t.patient_id}</span></>
               : 'PatientID en cours de lecture'}
+            {' · '}
+            <span className="font-mono">
+              {new Date(t.cree_le).toLocaleString('fr-FR', {
+                day: '2-digit', month: '2-digit',
+                hour: '2-digit', minute: '2-digit',
+              })}
+            </span>
           </div>
         </div>
         <span
@@ -249,6 +280,11 @@ function CarteTravail({
         >
           {t.etat.replace('_', ' ')}
         </span>
+      {depasse && (
+        <p className="mt-1 text-[11px] italic text-[#8B97A8]">
+          Remplacé par une analyse plus récente de ce patient.
+        </p>
+      )}
       </div>
 
       <div className="my-2 h-1 overflow-hidden rounded bg-[#2B3340]">
