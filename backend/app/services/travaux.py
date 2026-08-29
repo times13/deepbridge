@@ -118,7 +118,7 @@ class FileTravaux:
 
     def __init__(self, base: Path, racine_resultats: Path, racine_dossiers: Path,
                  pipeline: Path, python: str = None, device: str = "cpu",
-                 totalsegmentator: str = "TotalSegmentator"):
+                 totalsegmentator: str = "TotalSegmentator", au_terme=None):
         self.base = Path(base)
         self.base.parent.mkdir(parents=True, exist_ok=True)
         self.racine_resultats = Path(racine_resultats)
@@ -138,6 +138,11 @@ class FileTravaux:
         # processus uvicorn : l'appeler par son nom seul echoue en WinError 2.
         self.totalsegmentator = totalsegmentator
 
+        # Rappel invoque quand un travail se termine. Sans lui, le rechargement
+        # des mesures dependait d'un appel du client sur CE travail precis :
+        # une interface qui n'interrogeait plus cet identifiant ne voyait
+        # jamais le nouveau patient, et il fallait redemarrer le service.
+        self._au_terme = au_terme
         self._verrou = threading.Lock()
         self._queue: Queue[str] = Queue()
         self._annules: set[str] = set()
@@ -406,6 +411,14 @@ class FileTravaux:
                 message=f"{len(resultats)} axe(s) analyse(s)")
         self._noter(tid, "termine")
 
+        if self._au_terme is not None:
+            try:
+                self._au_terme(pid)
+            except Exception:
+                # Un rappel defaillant ne doit pas faire echouer un travail
+                # qui a abouti.
+                self._noter(tid, "rappel de fin en echec")
+
     # -- utilitaires -------------------------------------------------------- #
 
     def _echec(self, tid: str, etape: str, msg: str):
@@ -425,8 +438,8 @@ class FileTravaux:
             return True, ""
         # Message entier et non derniere ligne : une exception Python s'imprime
         # sur plusieurs lignes, et un WinError 32 nomme le fichier verrouille.
-            return False, ((r.stderr or r.stdout or f"code {r.returncode}")
-                       .strip()[-2000:])
+        return False, ((r.stderr or r.stdout or f"code {r.returncode}")
+                    .strip()[-2000:])
 
     def _fichiers_dicom(self, depot: Path) -> list[Path]:
         """Fichiers d'un depot, tries par nom.

@@ -31,11 +31,22 @@ def demarrer() -> dict:
     # l'application sans risquer de déclencher une segmentation de 12 minutes.
     if settings.activer_depot and settings.pipeline_dir.is_dir():
         settings.resultats_dir.mkdir(parents=True, exist_ok=True)
+
+        def _apres_analyse(pid: str) -> None:
+            """Recharge les mesures dès qu'un travail aboutit.
+
+            Appelé par le worker, non par le client : le rechargement ne doit
+            pas dépendre du fait qu'une interface interroge encore ce travail.
+            """
+            _mesures.recharger()
+            _magasin.reindexer(settings.nascet_reference, settings.dossiers_dir)
+
         _file = FileTravaux(settings.base_travaux, settings.resultats_dir,
                             settings.dossiers_dir, settings.pipeline_dir,
                             python=settings.python_pipeline,
                             totalsegmentator=settings.totalsegmentator,
-                            device=settings.device)
+                            device=settings.device,
+                            au_terme=_apres_analyse)
 
     return {"etude": _mesures.synthese("etude"),
             "clinique": _mesures.synthese("clinique"),
