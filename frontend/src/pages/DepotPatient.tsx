@@ -101,8 +101,8 @@ export default function DepotPatient({
       </h1>
       <p className="mt-2 max-w-3xl text-[13px] leading-relaxed text-[#8B97A8]">
         Choisissez un dossier DICOM parmi ceux que le serveur voit. L'analyse dure
-        une quinzaine de minutes — vous pouvez fermer cet onglet, le travail se
-        poursuit.
+        une quinzaine de minutes — vous pouvez fermer cette page, le travail se 
+        poursuit côté serveur.
       </p>
 
       {erreur && (
@@ -203,12 +203,19 @@ export default function DepotPatient({
         </section>
       </div>
 
-      <div className="mt-8 max-w-3xl space-y-3">
-        {travaux.map((t) => (
-          <CarteTravail key={t.id} t={t} onOuvrirPatient={onOuvrirPatient} />
-        ))}
+            {travaux.length > 0 && (
+        <section className="mt-10 max-w-3xl">
+          <h2 className="mb-3 text-[11px] font-bold uppercase tracking-[0.1em] text-[#8B97A8]">
+            Analyses ({travaux.length})
+          </h2>
+          <div className="space-y-3">
+            {travaux.map((t) => (
+              <CarteTravail key={t.id} t={t} onOuvrirPatient={onOuvrirPatient} />
+            ))}
+          </div>
+        </section>
+      )}
       </div>
-    </div>
   );
 }
 
@@ -223,10 +230,21 @@ function CarteTravail({
 
   return (
     <div className="rounded border border-[#39424F] p-4">
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="font-mono text-[13px]">{t.patient_id ?? '—'}</span>
+            <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          {/* Le dossier d'abord : c'est ce que l'utilisateur a choisi.
+              Le PatientID vient du DICOM et n'apparaît qu'après le pré-vol. */}
+          <div className="truncate font-mono text-[12.5px]" title={t.dossier_nom ?? ''}>
+            {t.dossier_nom ?? '—'}
+          </div>
+          <div className="mt-0.5 text-[11px] text-[#8B97A8]">
+            {t.patient_id
+              ? <>PatientID <span className="font-mono text-[#DDE3EA]">{t.patient_id}</span></>
+              : 'PatientID en cours de lecture'}
+          </div>
+        </div>
         <span
-          className="text-[11px] font-semibold uppercase tracking-wider"
+          className="shrink-0 text-[11px] font-semibold uppercase tracking-wider"
           style={{ color: c }}
         >
           {t.etat.replace('_', ' ')}

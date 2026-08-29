@@ -87,7 +87,7 @@ def deposer_local(d: DepotLocal):
     designe un dossier, il ne le televerse pas.
     """
     p = _confine(d.dossier)
-    return _file().deposer(p).dict()
+    return _enrichir(_file().deposer(p).dict())
 
 
 @router.post("/dossiers/prevol")
@@ -124,10 +124,22 @@ async def deposer(fichiers: list[UploadFile] = File(...)):
 
 # --------------------------------------------------------------------------- #
 
+def _enrichir(d: dict) -> dict:
+    """Ajoute le nom du dossier depose.
+
+    Un radiologue ne reconnait pas un patient a son PatientID DICOM : il
+    reconnait le dossier qu'il vient de choisir. Le chemin est deja en base,
+    on en remonte le nom.
+    """
+    dep = d.get("dossier_depot")
+    d["dossier_nom"] = Path(dep).name if dep else None
+    return d
+
+
 @router.get("/travaux")
 def liste():
     f = contexte.file_travaux()
-    return [t.dict() for t in f.liste()] if f else []
+    return [_enrichir(t.dict()) for t in f.liste()] if f else []
 
 
 @router.get("/travaux/{tid}")
@@ -135,7 +147,7 @@ def etat(tid: str):
     t = _file().etat(tid)
     if not t:
         raise HTTPException(404, "travail inconnu")
-    d = t.dict()
+    d = _enrichir(t.dict())
     if t.etat == "termine":
         # Recharge pour que le patient apparaisse sans redemarrer le service.
         m = contexte.mesures()

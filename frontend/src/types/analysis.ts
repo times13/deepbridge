@@ -74,6 +74,10 @@ export type EtatTravail =
 export interface Travail {
   id: string;
   patient_id: string | null;
+  /** Chemin complet du dossier déposé, et son nom seul — un radiologue
+   *  reconnaît le dossier qu'il a choisi, pas un PatientID DICOM. */
+  dossier_depot: string | null;
+  dossier_nom: string | null;
   etat: EtatTravail;
   etape: string | null;
   progression: number;
